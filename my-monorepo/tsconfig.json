@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@my-monorepo/*": ["packages/*/src"]
+        },
+        "module": "commonjs",
+        "target": "es2018",
+        "declaration": true,
+        "moduleResolution": "node"
+    },
+    "exclude": ["node_modules", "dist"]
+}

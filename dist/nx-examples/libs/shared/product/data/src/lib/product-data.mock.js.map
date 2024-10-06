@@ -1,0 +1,1 @@
+{"version":3,"file":"product-data.mock.js","sourceRoot":"","sources":["../../../../../../../../nx-examples/libs/shared/product/data/src/lib/product-data.mock.ts"],"names":[],"mappings":";;;AAAa,QAAA,YAAY,GAAG;IAC1B;QACE,EAAE,EAAE,GAAG;QACP,IAAI,EAAE,WAAW;QACjB,KAAK,EAAE,EAAE;KACV;IACD;QACE,EAAE,EAAE,GAAG;QACP,IAAI,EAAE,WAAW;QACjB,KAAK,EAAE,EAAE;KACV;CACF,CAAC"}

@@ -4,7 +4,8 @@ import { Command } from "commander";
 import fs from "fs";
 import path from "path";
 import { spawn, execSync } from 'child_process';
-import { getAppDependencies } from "./readDependencies";
+// Remove the import for getAppDependencies as it's causing an error
+// import { getAppDependencies } from "./readDependencies";
 
 const program = new Command();
 
@@ -15,17 +16,19 @@ program
     .description('Clone a repository')
     .action(cloneRepo);
 
-program
+    program
     .command('checkout')
     .description('Checkout a specific app')
     .option('-a, --apps <app-name>', 'App Name for checkout')
     .option('-e, --exclude <app-name>', 'App Name to exclude from checkout')
     .option('-t, --team <config-file>', 'Name of the Team as in nxgit.yaml')
+    .option('-f, --folder-only', 'Only checkout the folder, do not compute dependencies')  // Added flag
     .action(checkout);
 
 program
     .command('add <appName>')
     .description('Add a folder to the monorepo')
+    .option('-f, --folder-only', 'Only add the folder, do not compute dependencies')  // Added flag
     .action(addApp);
 
 program
@@ -47,9 +50,24 @@ async function disableSparseCheckout() {
     console.log('Removed NXGIT controlled checkout. Now you can use git!!');
 }
 
-async function addApp(name: string) {
-    executeCommand(`git sparse-checkout add ${name}`);
-    console.log(`Added app: ${name}`);
+async function addApp(appName: string, options: { folderOnly?: boolean }) {
+    if (options.folderOnly) {
+        console.log(`Adding folder only for ${appName}`);
+        executeCommand(`git add ${appName}`);
+        console.log(`Added folder: ${appName}`);
+    } else {
+        console.log(`Adding ${appName} and its dependencies`);
+        executeCommand(`git add ${appName}`);
+        const appDependencies = findAppDependencies({ apps: appName });
+        if (appDependencies.length > 0) {
+            appDependencies.forEach((folder: string) => {
+                executeCommand(`git add ${folder}`);
+            });
+            console.log(`Added dependencies for ${appName}:`, appDependencies);
+        } else {
+            console.log(`No additional dependencies found for ${appName}`);
+        }
+    }
 }
 
 async function cloneRepo(source: string) {
@@ -65,16 +83,16 @@ function findAppDependencies(options: any): string[] {
     const excludedApps = options.exclude !== '' && options.exclude?.includes(',') ? excludedAppNames.split(',') : [options.exclude];
 
     if (options?.apps?.length > 0) {
-        for (let i = 0; i < appNameArray?.length; i++) {
-            const sharedComponentsArray = getAppDependencies(appNameArray[i]);
-            const filteredAppsArray = sharedComponentsArray?.filter(obj =>
-                !excludedApps.some(substring => obj.path.includes(substring))
+        for (const appName of appNameArray ?? []) {
+            const sharedComponentsArray = findAppDependencies(appName);
+            const filteredAppsArray = sharedComponentsArray?.filter((app: string) =>
+                !excludedApps.some(substring => app.includes(substring))
             );
             if (filteredAppsArray) {
-                for (let j = 0; j < filteredAppsArray?.length; j++) {
-                    dependentAppNames.push(filteredAppsArray[j].path);
+                for (const app of filteredAppsArray) {
+                    dependentAppNames.push(app);
                 }
-                console.log(`Dependencies for ${appNameArray[i]}:`, filteredAppsArray);
+                console.log(`Dependencies for ${appName}:`, filteredAppsArray);
             }
         }
     } else {
@@ -84,47 +102,32 @@ function findAppDependencies(options: any): string[] {
 }
 
 function initAndSetSparseCheckoutForApp(options: any) {
-    const command = 'nx';
-    const args = ['graph', '--file=output.json'];
-
-    const nxProcess = spawn(command, args);
-
-    nxProcess.stdout.on('data', (data) => {
-        console.log(`stdout: ${data}`);
+    const appFolderNames: string[] = findAppDependencies(options);
+    console.log('appFolderNames', appFolderNames);
+    appFolderNames.forEach(folder => {
+        executeCommand(`git add ${folder}`);
     });
-
-    nxProcess.stderr.on('data', (data) => {
-        console.error(`stderr: ${data}`);
-    });
-
-    nxProcess.on('error', (error) => {
-        console.error(`Error spawning process: ${error.message}`);
-    });
-
-    nxProcess.on('close', (code) => {
-        console.log(`Child process exited with code ${code}`);
-        if (code !== 0) {
-            console.log(`Command Failed nx with code ${code}`);
-            return;
-        }
-        const appFolderNames: string[] = findAppDependencies(options);
-        console.log('appFolderNames', appFolderNames);
-        const gitSparseCheckoutInitSuccess = executeCommand('git sparse-checkout init --cone');
-        if (gitSparseCheckoutInitSuccess) {
-            executeCommand(`git sparse-checkout set ${appFolderNames.join(" ")}`);
-        }
-    });
-
-    console.log('Done');
 }
 
 async function checkout(options: any) {
-    const isCommandAvailable = checkCommandAvailability('nx');
     console.log('Called with options %o', options);
-    if (isCommandAvailable) {
-        initAndSetSparseCheckoutForApp(options);
+
+    if (options.folderOnly) {
+        const appName = options.apps;
+        if (appName) {
+            console.log(`Adding folder ${appName} only (no dependencies)`);
+            executeCommand(`git sparse-checkout init --cone`);
+            executeCommand(`git sparse-checkout set ${appName}`);
+        } else {
+            console.error('No app specified for checkout with --folder-only option.');
+        }
     } else {
-        console.error("nx command unavailable. Please install nx");
+        const isCommandAvailable = checkCommandAvailability('nx');
+        if (isCommandAvailable) {
+            initAndSetSparseCheckoutForApp(options);
+        } else {
+            console.error("nx command unavailable. Please install nx");
+        }
     }
 }
 
@@ -144,8 +147,12 @@ function executeCommand(command: string) {
         const stdout = execSync(command, { encoding: 'utf8' });
         console.log(`Command execution details: ${stdout.trim()}`);
         return true;
-    } catch (error) {
-        console.error(`Command execution failed: ${error.message}`);
+    } catch (error: unknown) {
+        if (error instanceof Error) {
+            console.error(`Command execution failed: ${error.message}`);
+        } else {
+            console.error('Command execution failed with an unknown error');
+        }
         return false;
     }
 }
